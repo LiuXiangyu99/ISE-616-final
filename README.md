@@ -1,148 +1,184 @@
-# ISE-616-final
+# Group–Dependent Graph-Based DRO Logistic Regression
 
-# Mixed-Feature Training Data and Distance Function
-
-This document summarizes the format of the training data and the definition of the distance function used in the model.
+This project implements a **Wasserstein distributionally robust logistic regression** model for mixed numerical / categorical features with **group-dependent ground metric**, using a **graph-based (DAG) reformulation** of the dual problem.
 
 ---
 
-## 1. Training Data Format
+## 1. Setup & Original DRO Formulation
 
-We work with a supervised binary classification setting. The training set contains \(N\) samples. For each sample \(i = 1, \dots, N\), we observe:
-
-- A vector of **numerical features** \(x^i \in \mathbb{R}^n\)
-- A vector of **categorical features** \(z^i \in \prod_{l=1}^m C_l\)
-- A **group index** \(g^i \in [\texttt{num\_g}] = \{1, 2, \dots, \texttt{num\_g}\}\)
-- A **binary label** \(y^i \in \{-1, +1\}\)
-
-The raw training data is stored as:
-
-- `X` (size \(N \times n\)): numerical feature matrix  
-- `Z` (size \(N \times m\)): categorical feature matrix  
-- `group` (length \(N\)): group index for each sample  
-- `y` (length \(N\)): labels
-
-### 1.1 Categorical Features
-
-We assume there are \(m\) categorical components. For each component \(l = 1, \dots, m\), we define a finite category set
+We observe training samples
 \[
-C_l = \{1, 2, \dots, k_l\}.
-\]
-
-For each sample \(i\) and component \(l\), the entry \(Z[i, l]\) (denoted \(z_l^i\)) is an integer in \(C_l\). We do **not** use one-hot encoding at the level of the raw training set: each categorical component is stored as a single integer code.
-
-### 1.2 Group Index
-
-The group index `group[i]` of sample \(i\) is an integer
-\[
-g^i \in [\texttt{num\_g}] = \{1, 2, \dots, \texttt{num\_g}\},
-\]
-where `num_g` is the total number of possible groups.
-
-The group index may later be one-hot encoded if needed for a specific model, but the core definitions in this document use the integer representation.
-
----
-
-## 2. Unified Sample Representation
-
-For convenience, we write a single sample as
-\[
-\xi = (x, z, g, y),
+  \xi^i = (x^i, z^i, g_i, y^i), \quad i=1,\dots,N,
 \]
 where
-- \(x \in \mathbb{R}^n\) is the numerical feature vector,
-- \(z \in \prod_{l=1}^m C_l\) is the categorical feature vector,
-- \(g \in [\texttt{num\_g}]\) is the group index,
-- \(y \in \{-1, +1\}\) is the label.
 
-Similarly, we denote another sample as
+- \(x^i \in \mathbb{R}^{n_x}\): numerical features  
+- \(z^i = (z^i_1,\dots,z^i_m)\), with
+  \[
+    z^i_\ell \in \{1,\dots,k_\ell\}, \quad \ell=1,\dots,m
+  \]
+- \(g_i \in \{1,\dots,\texttt{num\_g}\}\): group index  
+- \(y^i \in \{-1,+1\}\): label  
+
+We use a logistic model
 \[
-\xi' = (x', z', g', y').
+  f_\beta(x,z,g)
+  = \beta_0 + \beta_x^\top x + \beta_z^\top \phi_z(z) + \beta_{\text{grp}}^\top \phi_g(g),
 \]
+with reduced-dummy encodings \(\phi_z(\cdot)\) and \(\phi_g(\cdot)\), and logistic loss
+\[
+  \ell_\beta(x,z,g,y) = \log\bigl(1 + \exp(-y\,f_\beta(x,z,g))\bigr).
+\]
+
+### 1.1 Group-dependent ground metric
+
+Given a training sample \(\xi^i = (x^i,z^i,g_i,y^i)\), we define
+\[
+  d(\xi^i,\xi)
+  = A_{g} \sum_{j=1}^{n_x} \gamma_j \lvert x_j - x^i_j\rvert
+  + B_{g_i} \sum_{\ell=1}^{m} \delta_\ell \mathbf{1}[z_\ell \neq z^i_\ell]
+  + C_{g_i} \mathbf{1}[g \neq g_i]
+  + \infty \cdot \mathbf{1}[y \neq y^i].
+\]
+
+- \(A_g>0\): continuous part weight for destination group \(g\)  
+- \(B_{g_i}>0\), \(C_{g_i}\ge0\): categorical / group-change penalties based on origin group \(g_i\)  
+- \(\gamma_j>0\), \(\delta_\ell>0\): feature scalings  
+
+Let \(\widehat P_N = \frac1N \sum_{i=1}^N \delta_{\xi^i}\) be the empirical distribution and \(W_d\) the 1-Wasserstein distance induced by \(d(\cdot,\cdot)\).  
+The DRO problem with radius \(\varepsilon>0\) is
+\[
+  \min_{\beta} \;
+  \sup_{Q : W_d(Q,\widehat P_N)\le\varepsilon}
+  \mathbb{E}_{\xi\sim Q}\bigl[\ell_\beta(\xi)\bigr].
+\]
+
+### 1.2 Dual (non-graph) formulation
+
+Using standard Wasserstein duality (no label shift), the problem can be written as
+\[
+\begin{aligned}
+\min_{\lambda\ge0,\; r\in\mathbb{R}^N,\;\beta}\quad
+  & \lambda \varepsilon + \frac1N \sum_{i=1}^N r_i \\[2pt]
+\text{s.t.}\quad
+  & \ell_\beta(x^i,z,g,y^i)
+    - \lambda\Bigl(
+        B_{g_i} \sum_{\ell=1}^{m} \delta_\ell \mathbf{1}[z_\ell\neq z^i_\ell]
+        + C_{g_i}\mathbf{1}[g\neq g_i]
+      \Bigr)
+    \;\le\; r_i,\\
+  &\qquad \forall i\in[N],\;\forall z\in\prod_{\ell=1}^m\{1,\dots,k_\ell\},\;
+    \forall g\in\{1,\dots,\texttt{num\_g}\},\\[2pt]
+  & \lvert \beta_{xj}\rvert \;\le\; \lambda\,\gamma_j\,A_{\min},
+    \quad \forall j=1,\dots,n_x,
+\end{aligned}
+\]
+where
+\[
+  A_{\min} := \min_{g} A_g.
+\]
+
+The bottleneck is the **infinite family of constraints** over all categorical realizations \((z,g)\). The graph-based formulation replaces these with a finite set of constraints on a DAG.
 
 ---
 
-## 3. Distance Function
+## 2. Graph-Based Dual Formulation
 
-We define a distance function \(d(\xi, \xi')\) between two samples \(\xi = (x, z, g, y)\) and \(\xi' = (x', z', g', y')\) as follows:
+For each sample \(i\in[N]\), we build a directed acyclic graph
 \[
-d(\xi, \xi')
-=
-A_{g'} \sum_{j=1}^n \gamma_j \lvert x_j - x'_j \rvert
-\;+\;
-B_{g'} \sum_{l=1}^m \delta_l \mathbf{1}[z_l \neq z'_l]
-\;+\;
-C_{g'} \mathbf{1}[g \neq g']
-\;+\;
-\infty \cdot \mathbf{1}[y \neq y'].
+  G^i = (\mathcal{V}^i,\mathcal{A}^i),
+\]
+whose nodes are DP states \((k,d)\):
+
+- \(k = 0,1,\dots,m,m+1\): number of categorical components processed  
+- \(d \ge 0\): accumulated categorical distance
+  \[
+    d = \sum_{\ell=1}^{m} \delta_\ell \mathbf{1}[z_\ell \neq z^i_\ell].
+  \]
+
+- Source node: \((0,0)\)  
+- Sink node: \((m+1,0)\)
+
+### 2.1 Edges
+
+- **Categorical edges** (`CatArc`):  
+  From \((k-1,d_{\text{prev}})\) to \((k,d)\) encoding the choice of category \(c\in\{1,\dots,k_\ell\}\) at component \(k\), and updating \(d\) accordingly.  
+  Dual weight:
+  \[
+    w^i(e)
+    = -y^i \,\beta_{z,k}^\top \phi_{z_k}(c),
+  \]
+  where \(\phi_{z_k}(c)\) is the reduced dummy vector for feature \(k\).
+
+- **Terminal edges** (`TermArc`):  
+  From \((m,d)\) to \((m+1,0)\) for each group choice \(g\in\{1,\dots,\texttt{num\_g}\}\).  
+  Dual weight:
+  \[
+  \begin{aligned}
+    w^i(e) &=
+      - y^i \,\beta_{\text{grp}}^\top \phi_g(g) \\
+      &\quad - \log\Bigl(
+        \exp\bigl(
+          r_i + \lambda\bigl(B_{g_i} d + C_{g_i}\mathbf{1}[g\neq g_i]\bigr)
+        \bigr) - 1
+      \Bigr),
+  \end{aligned}
+  \]
+  with \(\phi_g(g)\) the reduced dummy encoding of group \(g\).
+
+For each node \(v\in\mathcal{V}^i\), we introduce a dual potential \(\mu^i_v\).
+
+### 2.2 Graph-based convex problem
+
+The infinite constraints in the non-graph dual are replaced by edge constraints:
+\[
+  \mu^i_{t(e)} - \mu^i_{s(e)} \;\ge\; w^i(e;\beta,\lambda,r_i),
+  \quad \forall i,\;\forall e\in\mathcal{A}^i.
 \]
 
-Here:
-
-- \(\gamma_j \ge 0\) is a weight associated with numerical feature \(j\), for \(j = 1, \dots, n\).
-- \(\delta_l \ge 0\) is a weight associated with categorical component \(l\), for \(l = 1, \dots, m\).
-- \(A_{g'} \ge 0\), \(B_{g'} \ge 0\), and \(C_{g'} \ge 0\) are **group-dependent coefficients** indexed by the destination group \(g'\in [\texttt{num\_g}]\).
-  - \(A_{g'}\) scales the numerical feature distance when the destination sample \(\xi'\) belongs to group \(g'\).
-  - \(B_{g'}\) scales the categorical feature distance for destination group \(g'\).
-  - \(C_{g'}\) is the penalty for transporting mass between different groups when the destination group is \(g'\).
-- \(\mathbf{1}[\cdot]\) is the indicator function, equal to \(1\) if the condition holds and \(0\) otherwise.
-
-The last term enforces that:
-- If \(y \neq y'\), then \(d(\xi, \xi') = \infty\). In other words, transportation between samples with different labels is forbidden.
-
-### 3.1 Numerical Part
-
-The numerical part of the distance is
+The full graph-based formulation is:
 \[
-A_{g'} \sum_{j=1}^n \gamma_j \lvert x_j - x'_j \rvert.
+\begin{aligned}
+\min_{\lambda, r, \beta, \mu}\quad
+  & \lambda \varepsilon + \frac1N \sum_{i=1}^N r_i \\[3pt]
+\text{s.t.}\quad
+  & y^i\bigl(\beta_x^\top x^i + \beta_0\bigr)
+    \;\ge\; -\mu^i_{(0,0)} + \mu^i_{(m+1,0)},
+    && \forall i\in[N], \\[4pt]
+  & \mu^i_{t(e)} - \mu^i_{s(e)} \;\ge\; w^i(e;\beta,\lambda,r_i),
+    && \forall i\in[N],\;\forall e\in\mathcal{A}^i, \\[4pt]
+  & \lvert \beta_{xj}\rvert \;\le\; \lambda\,\gamma_j A_{\min},
+    && \forall j=1,\dots,n_x, \\[4pt]
+  & \lambda \ge 0,\quad r\in\mathbb{R}^N,\quad
+    \beta \in \mathbb{R}^{1 + n_x + p_z + (\texttt{num\_g}-1)}, \\
+  & \mu^i \in \mathbb{R}^{|\mathcal{V}^i|},\quad \forall i\in[N].
+\end{aligned}
 \]
-This is a weighted \(\ell_1\)-type distance on the numerical features, with:
-- per-feature weights \(\gamma_j\), and
-- an additional scaling factor \(A_{g'}\) depending on the destination group.
 
-### 3.2 Categorical Part
-
-The categorical part of the distance is
+In the implementation, we additionally enforce domain constraints
 \[
-B_{g'} \sum_{l=1}^m \delta_l \mathbf{1}[z_l \neq z'_l].
+  r_i + \lambda\bigl(B_{g_i} d + C_{g_i}\mathbf{1}[g\neq g_i]\bigr) \;>\; 0
 \]
-For each categorical component \(l\):
-- we compare the integer codes \(z_l\) and \(z'_l\),
-- we incur a cost \(\delta_l\) if they are different, and
-- this cost is scaled by the group-dependent factor \(B_{g'}\).
-
-Note that each component \(z_l\) is a **single integer category**, not a one-hot vector. Therefore, each categorical component contributes at most one unit to the indicator term \(\mathbf{1}[z_l \neq z'_l]\).
-
-### 3.3 Group Penalty
-
-The group penalty is
-\[
-C_{g'} \mathbf{1}[g \neq g'].
-\]
-This term allows, but penalizes, moving mass between different groups:
-- If \(g = g'\), this term is 0 (no extra penalty for within-group transport).
-- If \(g \neq g'\), we pay a group-dependent cost \(C_{g'}\) when transporting from group \(g\) to group \(g'\).
-
-### 3.4 Label Constraint
-
-The label term
-\[
-\infty \cdot \mathbf{1}[y \neq y']
-\]
-ensures that transportation is **restricted to samples with the same label**:
-- If \(y = y'\), the term is 0 and the distance is finite (subject to the other terms).
-- If \(y \neq y'\), the distance is infinite and such transportation is disallowed.
+for each terminal edge, ensuring that the term \(\log(\exp(\cdot)-1)\) is well-defined.
 
 ---
 
-## 4. Summary
+## 3. How to Call the Main Function
 
-- The training data consists of numerical features \(x\), categorical features \(z\), a group index \(g\), and a binary label \(y\).
-- Categorical features are stored as integer codes per component (no one-hot at the raw data level).
-- The distance function \(d(\xi,\xi')\) combines:
-  - a weighted \(\ell_1\) distance on the numerical features,
-  - a weighted, component-wise indicator distance on the categorical features,
-  - a finite penalty for cross-group transportation, and
-  - an infinite penalty for cross-label transportation (which effectively forbids moving mass between different labels).
+The main entry point is:
 
-This distance will be used as the ground metric in the distributionally robust optimization formulation.
+```julia
+model, meta = build_group_dro_graph_model(
+    X,         # N × n_x continuous features
+    Z,         # N × m categorical features (original labels 1..k_ℓ)
+    group,     # length-N group indices g_i ∈ {1,..,num_g}
+    y,         # length-N labels in {-1, +1}
+    encinfo,   # ZGEncodingInfo(k_z, z_start, num_g)
+    delta,     # length-m Hamming weights δ_ℓ
+    A_group,   # length-num_g continuous weights A_g
+    B_group,   # length-num_g categorical weights B_g
+    C_group,   # length-num_g group-change penalties C_g
+    gamma_x,   # length n_x continuous scalings γ_j
+    ε,         # Wasserstein radius
+    optimizer, # e.g. optimizer_with_attributes(Ipopt.Optimizer, "print_level" => 0)
+)
