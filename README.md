@@ -9,10 +9,10 @@ $$
 where
 ```math
 
-- $x^i \in \mathbb{R}^{n_x}$: numerical features  
-- $z^i = (z^i_1,\dots,z^i_m)$, with $z^i_\ell \in \{1,\dots,k_\ell\},\ \ell=1,\dots,m$: categorical features  
-- $g_i \in \{1,\dots,\texttt{num\_g}\}$: group index  
-- $y^i \in \{-1,+1\}$: label  
+- x^i \in \mathbb{R}^{n_x} 
+- z^i = (z^i_1,\dots,z^i_m), z^i_\ell \in \{1,\dots,k_\ell\},\ \ell=1,\dots,m
+- g_i \in \{1,\dots,\texttt{num\_g}\}
+- y^i \in \{-1,+1\}
 ```
 
 We use a logistic model
