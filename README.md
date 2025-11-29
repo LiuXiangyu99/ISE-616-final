@@ -7,9 +7,9 @@ This project implements a **Wasserstein distributionally robust logistic regress
 ## 1. Setup & Original DRO Formulation
 
 We observe training samples
-\[
+$$
   \xi^i = (x^i, z^i, g_i, y^i), \quad i=1,\dots,N,
-\]
+$$
 where
 
 - \(x^i \in \mathbb{R}^{n_x}\): numerical features  
