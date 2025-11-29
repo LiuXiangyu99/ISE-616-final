@@ -12,6 +12,11 @@ We observe training samples
 \begin{align}
     \xi^i = (x^i, z^i, g_i, y^i), \quad i=1,\dots,N,
 \end{align}
-
 ```
+where we have:
 
+```math
+\begin{itemize}
+    \item 
+\end{itemize}
+```
