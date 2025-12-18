@@ -17,6 +17,6 @@ where we have:
 
 ```math
 \begin{itemize}
-    \item 
+    \item 11
 \end{itemize}
 ```
